@@ -1,0 +1,69 @@
+version: '2.4'
+
+x-app: &app
+  build:
+    context: ./app
+    dockerfile: .dockerdev/Dockerfile
+  environment: &env
+    NODE_ENV: ${NODE_ENV:-development}
+    RAILS_ENV: ${RAILS_ENV:-development}
+    YARN_CACHE_FOLDER: /app/node_modules/.yarn-cache
+  tmpfs:
+    - /tmp
+    - /app/tmp/pids
+
+x-backend: &backend
+  <<: *app
+  stdin_open: true
+  tty: true
+  volumes:
+    - ./app:/app:cached
+    - rails_cache:/app/tmp/cache
+    - bundle:/usr/local/bundle
+  environment:
+    <<: *env
+    DATABASE_HOST: postgres
+    DATABASE_NAME: app
+    DATABASE_PORT: 5432
+    DATABASE_USER: postgres
+    DATABASE_PASSWORD: postgres
+    BOOTSNAP_CACHE_DIR: /usr/local/bundle/_bootsnap
+    WEB_CONCURRENCY: 0
+    HISTFILE: /app/log/.bash_history
+    PSQL_HISTFILE: /app/log/.psql_history
+    EDITOR: nano
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  runner:
+    <<: *backend
+    command: /bin/bash
+
+  rails:
+    <<: *backend
+    command: bash -c "cron && bundle exec whenever --update-crontab && bundle exec rails server -b 0.0.0.0"
+    ports:
+      - '3000:3000'
+
+  postgres:
+    image: postgres:13.0
+    volumes:
+      - ./postgres/dumps:/dumps
+      - ./postgres/data:/var/lib/postgresql/data
+      - ./postgres/log:/root/log:cached
+    environment:
+      PSQL_HISTFILE: /root/log/.psql_history
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - '5432:5432'
+    healthcheck:
+      test: pg_isready -U postgres -h 127.0.0.1
+      interval: 5s
+
+volumes:
+  postgres:
+  bundle:
+  rails_cache:
+  packs:
